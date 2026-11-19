@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Task Risk Analyzer</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-2: #273449;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --low: #22c55e;
+      --medium: #f59e0b;
+      --high: #ef4444;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    header h1 { margin: 0 0 .25rem; font-size: 1.6rem; }
+    header p { margin: 0 0 1.5rem; color: var(--muted); }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .75rem;
+      font: inherit;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+    .row { display: flex; gap: .75rem; align-items: center; margin-top: .75rem; flex-wrap: wrap; }
+    button {
+      background: var(--accent);
+      color: #04293a;
+      border: none;
+      border-radius: 8px;
+      padding: .6rem 1.2rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .examples { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .chip {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: .35rem .7rem;
+      font-size: .8rem;
+      cursor: pointer;
+    }
+    .chip:hover { color: var(--text); border-color: var(--accent); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .3rem .8rem;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: .8rem;
+    }
+    .badge.low { background: rgba(34,197,94,.15); color: var(--low); }
+    .badge.medium { background: rgba(245,158,11,.15); color: var(--medium); }
+    .badge.high { background: rgba(239,68,68,.15); color: var(--high); }
+    .meter { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin-top: .6rem; }
+    .meter > span { display: block; height: 100%; transition: width .4s ease; }
+    .meter.low > span { background: var(--low); }
+    .meter.medium > span { background: var(--medium); }
+    .meter.high > span { background: var(--high); }
+    h3 { margin: 1.25rem 0 .5rem; font-size: 1rem; color: var(--accent); }
+    ul { margin: 0; padding-left: 1.2rem; }
+    li { margin: .25rem 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+    .error { color: var(--high); margin-top: .75rem; }
+    .muted { color: var(--muted); font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap" x-data="analyzer()">
+    <header>
+      <h1>🛡️ AI Task Risk Analyzer</h1>
+      <p>Clarify requirements, risks, and test strategy <em>before</em> you start coding.</p>
+    </header>
+
+    <div class="card">
+      <label for="task"><strong>Describe your engineering task</strong></label>
+      <textarea id="task" x-model="task" placeholder="e.g. Add OAuth login and store tokens in the database, then run a schema migration."></textarea>
+
+      <div class="row">
+        <button @click="analyze()" :disabled="loading || task.trim().length < 3">
+          <span x-show="!loading">Analyze task</span>
+          <span x-show="loading">Analyzing…</span>
+        </button>
+        <span class="muted">Powered by FastAPI + OpenTelemetry</span>
+      </div>
+
+      <div class="row examples">
+        <template x-for="ex in examples" :key="ex">
+          <span class="chip" @click="task = ex; analyze()" x-text="ex.slice(0, 42) + '…'"></span>
+        </template>
+      </div>
+
+      <div class="error" x-show="error" x-text="error"></div>
+    </div>
+
+    <template x-if="result">
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <span class="badge" :class="result.risk_level" x-text="'Risk: ' + result.risk_level"></span>
+          <span class="muted">Score: <strong x-text="result.risk_score"></strong> / 100</span>
+        </div>
+        <div class="meter" :class="result.risk_level">
+          <span :style="`width: ${result.risk_score}%`"></span>
+        </div>
+
+        <h3>❓ Unclear questions to resolve first</h3>
+        <ul>
+          <template x-for="q in result.unclear_questions" :key="q"><li x-text="q"></li></template>
+        </ul>
+
+        <div class="grid">
+          <div>
+            <h3>🧭 Implementation plan</h3>
+            <ul>
+              <template x-for="p in result.implementation_plan" :key="p"><li x-text="p"></li></template>
+            </ul>
+          </div>
+          <div>
+            <h3>🧪 Suggested tests</h3>
+            <ul>
+              <template x-for="t in result.suggested_tests" :key="t"><li x-text="t"></li></template>
+            </ul>
+          </div>
+        </div>
+
+        <h3>✅ PR checklist</h3>
+        <ul>
+          <template x-for="c in result.pr_checklist" :key="c"><li x-text="c"></li></template>
+        </ul>
+      </div>
+    </template>
+  </div>
+
+  <script>
+    function analyzer() {
+      return {
+        task: "",
+        result: null,
+        loading: false,
+        error: "",
+        examples: [
+          "Add OAuth login and store tokens in the database, then run a schema migration.",
+          "Update the README with a short getting-started section for new contributors.",
+          "Integrate a third-party payment webhook and cache the async responses.",
+        ],
+        async analyze() {
+          const task = this.task.trim();
+          if (task.length < 3) return;
+          this.loading = true;
+          this.error = "";
+          this.result = null;
+          try {
+            const res = await fetch("/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ task }),
+            });
+            if (!res.ok) {
+              const detail = await res.json().catch(() => ({}));
+              throw new Error(detail.detail?.[0]?.msg || `Request failed (${res.status})`);
+            }
+            this.result = await res.json();
+          } catch (e) {
+            this.error = e.message || "Something went wrong.";
+          } finally {
+            this.loading = false;
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>
